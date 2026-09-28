@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Split-Screen Video & Live Camera Feed</title>
   
+  <!-- Prevents external video CDNs from blocking playback based on the Referer header -->
+  <meta name="referrer" content="no-referrer">
+  
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -74,14 +77,14 @@
     <!-- ========================================== -->
     <section class="relative flex-1 w-full overflow-hidden bg-zinc-950 border-b border-slate-800/80 flex items-center justify-center">
       
-      <!-- Top Video Element -->
+      <!-- Removed crossorigin="anonymous" to permit cross-origin playback without strict CORS headers -->
       <video 
         id="topVideo"
         class="w-full h-full object-cover"
         playsinline
         webkit-playsinline
         preload="auto"
-        crossorigin="anonymous"
+        referrerpolicy="no-referrer"
       ></video>
 
       <!-- Video Loading Spinner -->
@@ -96,17 +99,27 @@
       </div>
 
       <!-- Video Error Banner (shown if URL is blocked or fails) -->
-      <div id="videoErrorOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4 text-center z-10 hidden">
-        <div class="w-10 h-10 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mb-2">
+      <div id="videoErrorOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/85 backdrop-blur-md p-6 text-center z-10 hidden">
+        <div class="w-11 h-11 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-2 shadow-inner">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <p class="text-xs text-slate-200 font-semibold mb-1">Video Could Not Load</p>
-        <p class="text-[11px] text-slate-400 mb-3 max-w-xs">The link may be blocked or unsupported in this network environment.</p>
-        <button id="retryVideoBtn" class="px-4 py-1.5 rounded-full glass-btn text-xs font-semibold text-cyan-400 border-cyan-500/30 active:scale-95">
-          Skip to Next Video
-        </button>
+        <p class="text-xs text-slate-100 font-semibold mb-1">Video Could Not Load</p>
+        <p id="videoErrorReason" class="text-[11px] text-rose-300/90 mb-2 max-w-xs font-mono break-all px-2.5 py-1 bg-black/50 rounded border border-rose-500/20">
+          Source blocked or token expired
+        </p>
+        <p class="text-[11px] text-slate-400 mb-3 max-w-xs leading-relaxed">
+          The link may have expired, returned 403 Forbidden, or the server rejected the connection.
+        </p>
+        <div class="flex items-center gap-2">
+          <button id="retryVideoBtn" class="px-4 py-1.5 rounded-full glass-btn text-xs font-semibold text-cyan-400 border-cyan-500/30 active:scale-95 shadow-md">
+            Skip to Next Video
+          </button>
+          <button id="manageLinksFromErrorBtn" class="px-3.5 py-1.5 rounded-full glass-btn text-xs font-medium text-slate-300 hover:text-white border-slate-600/40 active:scale-95">
+            Edit Links
+          </button>
+        </div>
       </div>
 
       <!-- Top Bar Badges & Controls -->
@@ -118,23 +131,39 @@
           <span id="videoCounter" class="text-[11px] font-mono text-slate-400 ml-1">1/5</span>
         </div>
 
-        <!-- Audio Mute Toggle Button -->
-        <button 
-          id="toggleAudioBtn"
-          class="glass-btn pointer-events-auto rounded-full w-9 h-9 flex items-center justify-center text-slate-200 hover:text-white shadow-lg active:scale-95"
-          title="Toggle Audio"
-          aria-label="Toggle Audio"
-        >
-          <!-- Unmuted Icon -->
-          <svg id="iconAudioOn" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-          </svg>
-          <!-- Muted Icon -->
-          <svg id="iconAudioOff" class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-          </svg>
-        </button>
+        <!-- Top Right Controls: Links Manager & Audio Toggle -->
+        <div class="flex items-center gap-2 pointer-events-auto">
+          <!-- Live Link Editor Button -->
+          <button 
+            id="openLinksModalBtn"
+            class="glass-btn rounded-full px-3 py-1.5 flex items-center gap-1.5 text-xs text-slate-200 hover:text-white shadow-lg active:scale-95 border border-slate-700/60"
+            title="Manage Video Links"
+            aria-label="Manage Video Links"
+          >
+            <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            <span class="font-medium">Links</span>
+          </button>
+
+          <!-- Audio Mute Toggle Button -->
+          <button 
+            id="toggleAudioBtn"
+            class="glass-btn rounded-full w-9 h-9 flex items-center justify-center text-slate-200 hover:text-white shadow-lg active:scale-95"
+            title="Toggle Audio"
+            aria-label="Toggle Audio"
+          >
+            <!-- Unmuted Icon -->
+            <svg id="iconAudioOn" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            </svg>
+            <!-- Muted Icon -->
+            <svg id="iconAudioOff" class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       <!-- Next Video Action Button -->
@@ -237,6 +266,43 @@
       </div>
     </div>
 
+    <!-- Video Links Manager Modal (Allows pasting or updating links directly on device) -->
+    <div id="linksModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-300 hidden">
+      <div class="max-w-md w-full bg-slate-900 border border-slate-700/80 rounded-2xl p-5 shadow-2xl flex flex-col max-h-[88vh]">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+            <h3 class="text-sm font-bold text-white">Active Video Links</h3>
+          </div>
+          <button id="closeLinksModalBtn" class="text-slate-400 hover:text-white p-1 rounded-lg">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        <p class="text-[11px] text-slate-400 mt-3 mb-2 leading-relaxed">
+          Paste direct video links (one URL per line). Expiring token links will show an error once invalid.
+        </p>
+        
+        <textarea 
+          id="linksTextarea" 
+          class="w-full flex-1 min-h-[150px] max-h-[240px] bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-[11px] font-mono text-slate-200 focus:outline-none focus:border-cyan-500 transition resize-none leading-relaxed"
+          placeholder="https://example.com/video1.mp4&#10;https://example.com/video2.mp4"
+          spellcheck="false"
+        ></textarea>
+
+        <div class="flex items-center justify-between mt-4 gap-2">
+          <button id="resetDefaultLinksBtn" class="text-[11px] text-slate-400 hover:text-slate-200 underline">
+            Reset to Working Samples
+          </button>
+          <button id="saveLinksBtn" class="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs transition active:scale-95 shadow-md">
+            Save & Play
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Non-intrusive Toast Notification Banner -->
     <div id="toast" class="fixed top-5 inset-x-5 pointer-events-none z-50 flex justify-center transition-all duration-300 opacity-0 -translate-y-4">
       <div id="toastMessage" class="glass-pill px-4 py-2.5 rounded-full text-xs font-medium text-slate-200 shadow-xl border border-slate-700/60 max-w-sm text-center">
@@ -251,12 +317,27 @@
     //  USER CONFIGURATION: PASTE YOUR VIDEO LINKS HERE
     //  Add, replace, or reorder any direct MP4/WebM video URLs below.
     // =========================================================================
-    const VIDEO_LINKS = [
+
+    const DEFAULT_VIDEOS = [
       "https://cdn4.omeglemedia.com/remote_control.php?file=MK7v84COsT89w72t7czz-hd3eiavzuzecy9yvUL-1KcHxV3zciZfKwf0rbnL67cSOq6z57TX5YLqHPAnGkOGlkIynlkdpd7cboF-e9vki5v_CV0ssiinlrqEBzilev9y9cCuQn7VmALQhjDODSiOI-iaULc6Thhr48q7SZS6CW9JFllu6fQ8_a6pW1wnoTwe1cs09Rk1_dBGZY97.mp4&acctoken=OTE4YWI4Y2U2NzNiMzQxODAwNDljNjA4YjYxNDNkN2EyZjBiMTEyZjI0MWFjOTA1ZGM3ZWVjOGRhMWMxYmNiOXwxNzkwNjMyNDIyfDEzMzUwMHxvbWVnbGVwb3JuLnRvfDB8fDU5YjIyMWM4MmEwY2Q2ZTI2MWVkMjhiM2EzNTJjMWJj",
       "https://cdn14.omeglemedia.com/remote_control.php?file=Tv1gRtfWViTA0MGlT1pLVLgry3RRD56PC5w6dYygcZ2NzezCx3a8SgtHI6oUMfzE5IY2QYr3Y_PkIYfNv1nzC3978OwGeKuWQ95dP14Zu8L-P-zOOHgJ8rD_vv7IBbhw5x8PjZTSGuYqz1C3efDl_mHSo-dsyTUJrIhJdkM0x1KfTZpaHD8r0uB2WWnUE6VY5eQghw7UmEa_H_o-vNraYRM.mp4&acctoken=YzJiZjRjZDMzMWU5YzdlODIwYmQ1NjM5ZGJjYjQ2N2FjOTNkNzA0MDE5YWM1OWRmYzIzYWE5ZWU0ZDk1NmQ1OXwxNzkwNjMyNTIyfDIwMDI1MHxvbWVnbGVwb3JuLnRvfDB8fGE4ZDE5NGZmOGQzYjdlY2M3MWMyZjNlODI1NWZhZjBi",
       "https://cdn14.omeglemedia.com/remote_control.php?file=BuLIYtxc7qxNIbnCcjGJQrz8sqlQqtcWqZQUL6QxV932rCRH6diJThCe3vI09VfASmnD_ArTDweWgBymz7WLi3QKHn44_huMHN6NExX5v_BF2x3MT8PBc65BPZbZ4NlxxrVBnWxbE8dyJZ8D0MRa0hiMyCD1vSXbnPkbGiwf6M09_2Y1QO2CNhtidV7Fw_b3aU2OSa3eKDIOs6sD.mp4&acctoken=NTZiNjYwNGRkZjczOTM5MzJjZTAwMDJmNTM0YzY2NDg0MzFlNWIzODk5NTdlYWQ2YWY1NWI4OWViMzQwZjA0MXwxNzkwNjMyNTU2fDEwNDAwMHxvbWVnbGVwb3JuLnRvfDB8fDk2N2Y0NGY2YzgzMmE5MDY1OTg5N2FmMjc1ZTU5YTNk",
       "https://cdn8.omeglemedia.com/remote_control.php?file=R9mTIS-mp84715znBnTRRAsmi9Enrl0SZFFRm6s1UUdiD039fm66KE6JW9uh5Rww9biiCk81XbeGayGeP4NvB8bxHlm3Vy5wcF60HhLDOSIK0sPH-v3b5wRp1HwsRc2-DieKoXfLyM3DYyDKFIvYT-GbR3mRNnrjt1o10OVsVat9XNNKu7OH7n0rxkAmv1s_xe7OQbMFM8eOCd-Q.mp4&acctoken=NGVkMzVjN2JmNjRkMDNmZWUzZGZmNzYzODUyMWQ1MTgzOTdjZDhkODlhZTk1NDUyMTA5ODYxZGI2ZTEyMTBhN3wxNzkwNjMyODg4fDE1MTAwMHxvbWVnbGVwb3JuLnRvfDB8fDIyMzBhNTcwYzJkMDk5YWRkMmI5N2QyOWQ4ZGE0YzFh"
     ];
+
+    // Read stored user links or fallback to default list
+    let VIDEO_LINKS = (() => {
+      try {
+        const stored = localStorage.getItem('custom_split_video_links');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {
+        console.warn('LocalStorage unavailable:', e);
+      }
+      return [...DEFAULT_VIDEOS];
+    })();
     // =========================================================================
 
     // DOM Element References
@@ -269,7 +350,16 @@
     const videoCounter = document.getElementById('videoCounter');
     const videoLoader = document.getElementById('videoLoader');
     const videoErrorOverlay = document.getElementById('videoErrorOverlay');
+    const videoErrorReason = document.getElementById('videoErrorReason');
     const retryVideoBtn = document.getElementById('retryVideoBtn');
+    const manageLinksFromErrorBtn = document.getElementById('manageLinksFromErrorBtn');
+
+    const openLinksModalBtn = document.getElementById('openLinksModalBtn');
+    const linksModal = document.getElementById('linksModal');
+    const closeLinksModalBtn = document.getElementById('closeLinksModalBtn');
+    const linksTextarea = document.getElementById('linksTextarea');
+    const saveLinksBtn = document.getElementById('saveLinksBtn');
+    const resetDefaultLinksBtn = document.getElementById('resetDefaultLinksBtn');
 
     const flipCameraBtn = document.getElementById('flipCameraBtn');
     const cameraLensBadge = document.getElementById('cameraLensBadge');
@@ -286,7 +376,7 @@
     let currentVideoIndex = -1;
     let currentPlayRequestId = 0;
     let cameraStream = null;
-    let currentFacingMode = 'environment'; // 'environment' targets the back camera
+    let currentFacingMode = 'environment';
     let isVideoMuted = true;
     let toastTimeout = null;
 
@@ -307,12 +397,31 @@
       videoErrorOverlay.classList.remove('flex');
     }
 
-    function showVideoError(msg) {
+    function getVideoErrorDescription() {
+      if (!topVideo.error) return 'Network failure or server refused connection';
+      switch (topVideo.error.code) {
+        case 1: // MEDIA_ERR_ABORTED
+          return 'Playback aborted by client';
+        case 2: // MEDIA_ERR_NETWORK
+          return 'Network error / connection dropped';
+        case 3: // MEDIA_ERR_DECODE
+          return 'Video format decoding failed';
+        case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+          return '403 Forbidden / Expired Token / Blocked by host';
+        default:
+          return topVideo.error.message || 'Media source unreachable';
+      }
+    }
+
+    function showVideoError(customReason) {
       videoLoader.classList.remove('opacity-100');
       videoLoader.classList.add('opacity-0');
+      
+      const reason = customReason || getVideoErrorDescription();
+      videoErrorReason.textContent = reason;
+      
       videoErrorOverlay.classList.remove('hidden');
       videoErrorOverlay.classList.add('flex');
-      if (msg) showToast(msg, 3000);
     }
 
     /**
@@ -329,7 +438,7 @@
       } catch (err) {
         if (requestId !== currentPlayRequestId) return;
 
-        // Only retry muted if blocked specifically by browser autoplay policy
+        // Retry muted if blocked specifically by browser autoplay policy
         if (err.name === 'NotAllowedError') {
           console.warn('Autoplay restricted audio; retrying muted...');
           isVideoMuted = true;
@@ -346,22 +455,20 @@
             videoLoader.classList.add('opacity-0');
           }
         } else if (err.name === 'AbortError') {
-          // Playback request superseded by another video switch; safe to ignore
+          // Playback request superseded by another video switch
         } else {
-          // Source unsupported or blocked by CORS / network
           console.warn('Video source load notice:', err.message);
-          showVideoError('Unable to play this video source.');
+          showVideoError();
         }
       }
     }
 
     /**
      * Randomly picks a video from the VIDEO_LINKS array.
-     * Prevents picking the immediate identical video if array has more than 1 item.
      */
     function playRandomVideo() {
       if (!VIDEO_LINKS || VIDEO_LINKS.length === 0) {
-        showToast('No videos available in the list.');
+        showVideoError('No links in playlist. Tap "Edit Links" above.');
         return;
       }
 
@@ -369,7 +476,6 @@
       if (VIDEO_LINKS.length === 1) {
         newIndex = 0;
       } else {
-        // Find a random index different from current
         do {
           newIndex = Math.floor(Math.random() * VIDEO_LINKS.length);
         } while (newIndex === currentVideoIndex);
@@ -382,16 +488,15 @@
       // Update badge
       videoCounter.textContent = `${currentVideoIndex + 1}/${VIDEO_LINKS.length}`;
 
-      // Show loader spinner and clear previous errors
+      // Reset states
       hideVideoError();
       videoLoader.classList.remove('opacity-0');
       videoLoader.classList.add('opacity-100');
 
-      // Set audio state and new source cleanly (NO topVideo.load() call to prevent NETWORK_NO_SOURCE race)
+      // Set audio state and source directly
       topVideo.muted = isVideoMuted;
       topVideo.src = targetUrl;
 
-      // Wait until media data is available before calling play
       const onCanPlay = () => {
         if (thisRequestId === currentPlayRequestId) {
           playVideoSafely(thisRequestId);
@@ -430,9 +535,9 @@
       playRandomVideo();
     });
 
-    // Catch media error events
+    // Catch media error events and display diagnostics
     topVideo.addEventListener('error', () => {
-      showVideoError('Video source failed to load or is unreachable.');
+      showVideoError();
     });
 
     // Automatically skip to next random video when current video completes
@@ -440,10 +545,57 @@
       playRandomVideo();
     });
 
-    // Hide loader once metadata or frame is ready
+    // Hide loader once playback begins
     topVideo.addEventListener('playing', () => {
       videoLoader.classList.remove('opacity-100');
       videoLoader.classList.add('opacity-0');
+    });
+
+    // Video Links Manager Modal Handlers
+    function openLinksModal() {
+      linksTextarea.value = VIDEO_LINKS.join('\n');
+      linksModal.classList.remove('hidden');
+    }
+
+    function closeLinksModal() {
+      linksModal.classList.add('hidden');
+    }
+
+    openLinksModalBtn.addEventListener('click', openLinksModal);
+    manageLinksFromErrorBtn.addEventListener('click', openLinksModal);
+    closeLinksModalBtn.addEventListener('click', closeLinksModal);
+
+    saveLinksBtn.addEventListener('click', () => {
+      const lines = linksTextarea.value
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0 && (l.startsWith('http://') || l.startsWith('https://')));
+
+      if (lines.length === 0) {
+        showToast('Please enter at least one valid HTTP/HTTPS URL');
+        return;
+      }
+
+      VIDEO_LINKS = lines;
+      try {
+        localStorage.setItem('custom_split_video_links', JSON.stringify(VIDEO_LINKS));
+      } catch (e) {
+        console.warn('LocalStorage save failed:', e);
+      }
+
+      closeLinksModal();
+      showToast(`Saved ${VIDEO_LINKS.length} video(s)`);
+      currentVideoIndex = -1;
+      playRandomVideo();
+    });
+
+    resetDefaultLinksBtn.addEventListener('click', () => {
+      VIDEO_LINKS = [...DEFAULT_VIDEOS];
+      try {
+        localStorage.removeItem('custom_split_video_links');
+      } catch (e) {}
+      linksTextarea.value = VIDEO_LINKS.join('\n');
+      showToast('Reset to default sample videos');
     });
 
     /**
@@ -493,7 +645,6 @@
         try {
           stream = await navigator.mediaDevices.getUserMedia(constraints);
         } catch (strictErr) {
-          // Fallback if ideal facingMode constraint fails on some hardware
           console.warn('Ideal constraint failed, retrying with general video request:', strictErr);
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
@@ -502,8 +653,6 @@
         cameraFeed.srcObject = stream;
 
         await cameraFeed.play();
-
-        // Stream connected successfully
         cameraStatusOverlay.classList.add('opacity-0', 'pointer-events-none');
       } catch (err) {
         console.error('Camera initialization error:', err);
