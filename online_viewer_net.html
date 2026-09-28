@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Split-Screen Video & Live Camera Feed</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      font-family: 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    /* Support for dynamic mobile viewports */
+    .app-container {
+      height: 100vh;
+      height: 100dvh;
+    }
+
+    /* Glassmorphism utility classes */
+    .glass-pill {
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    
+    .glass-btn {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .glass-btn:active {
+      transform: scale(0.94);
+      background: rgba(51, 65, 85, 0.9);
+    }
+
+    /* Pulse beacon animation for live camera */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.85); opacity: 0.9; }
+      50% { transform: scale(1.3); opacity: 0.3; }
+      100% { transform: scale(0.85); opacity: 0.9; }
+    }
+    .live-dot {
+      animation: pulse-ring 1.8s ease-in-out infinite;
+    }
+
+    /* Spin animation for video loading */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin-fast {
+      animation: spin 0.75s linear infinite;
+    }
+  </style>
+</head>
+<body class="bg-black text-slate-100 overflow-hidden antialiased">
+
+  <main class="app-container w-full flex flex-col relative bg-slate-950">
+
+    <!-- ========================================== -->
+    <!-- TOP HALF: PRESET RANDOM VIDEO PLAYER       -->
+    <!-- ========================================== -->
+    <section class="relative flex-1 w-full overflow-hidden bg-zinc-950 border-b border-slate-800/80 flex items-center justify-center">
+      
+      <!-- Top Video Element -->
+      <video 
+        id="topVideo"
+        class="w-full h-full object-cover"
+        playsinline
+        webkit-playsinline
+        preload="auto"
+        crossorigin="anonymous"
+      ></video>
+
+      <!-- Video Loading Spinner -->
+      <div id="videoLoader" class="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-none transition-opacity duration-300 opacity-0 z-10">
+        <div class="flex items-center gap-3 px-4 py-2 rounded-full glass-pill text-xs font-medium text-slate-200">
+          <svg class="animate-spin-fast h-4 w-4 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Loading next video...
+        </div>
+      </div>
+
+      <!-- Video Error Banner (shown if URL is blocked or fails) -->
+      <div id="videoErrorOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4 text-center z-10 hidden">
+        <div class="w-10 h-10 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mb-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <p class="text-xs text-slate-200 font-semibold mb-1">Video Could Not Load</p>
+        <p class="text-[11px] text-slate-400 mb-3 max-w-xs">The link may be blocked or unsupported in this network environment.</p>
+        <button id="retryVideoBtn" class="px-4 py-1.5 rounded-full glass-btn text-xs font-semibold text-cyan-400 border-cyan-500/30 active:scale-95">
+          Skip to Next Video
+        </button>
+      </div>
+
+      <!-- Top Bar Badges & Controls -->
+      <header class="absolute top-3 inset-x-3 flex items-center justify-between pointer-events-none z-20">
+        <!-- Title Badge -->
+        <div class="glass-pill rounded-full px-3 py-1.5 flex items-center gap-2 pointer-events-auto shadow-lg">
+          <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+          <span class="text-xs font-semibold tracking-wide uppercase text-slate-200">Preset Video</span>
+          <span id="videoCounter" class="text-[11px] font-mono text-slate-400 ml-1">1/5</span>
+        </div>
+
+        <!-- Audio Mute Toggle Button -->
+        <button 
+          id="toggleAudioBtn"
+          class="glass-btn pointer-events-auto rounded-full w-9 h-9 flex items-center justify-center text-slate-200 hover:text-white shadow-lg active:scale-95"
+          title="Toggle Audio"
+          aria-label="Toggle Audio"
+        >
+          <!-- Unmuted Icon -->
+          <svg id="iconAudioOn" class="w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+          </svg>
+          <!-- Muted Icon -->
+          <svg id="iconAudioOff" class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+          </svg>
+        </button>
+      </header>
+
+      <!-- Next Video Action Button -->
+      <div class="absolute bottom-3 right-3 z-20">
+        <button 
+          id="nextVideoBtn"
+          class="glass-btn px-4 py-2 rounded-full flex items-center gap-2 text-white font-medium text-xs tracking-wide shadow-xl active:scale-95 border border-cyan-500/30 bg-cyan-950/40 hover:bg-cyan-900/50"
+          aria-label="Next Random Video"
+        >
+          <span>Next Video</span>
+          <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- BOTTOM HALF: LIVE MOBILE BACK CAMERA FEED  -->
+    <!-- ========================================== -->
+    <section class="relative flex-1 w-full overflow-hidden bg-black flex items-center justify-center">
+
+      <!-- Camera Feed Video Element -->
+      <video 
+        id="cameraFeed"
+        class="w-full h-full object-cover"
+        playsinline
+        webkit-playsinline
+        autoplay
+        muted
+      ></video>
+
+      <!-- Camera State Bar -->
+      <header class="absolute top-3 inset-x-3 flex items-center justify-between pointer-events-none z-20">
+        <!-- Live Indicator Badge -->
+        <div class="glass-pill rounded-full px-3 py-1.5 flex items-center gap-2 pointer-events-auto shadow-lg">
+          <span class="relative flex h-2.5 w-2.5">
+            <span class="live-dot absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          </span>
+          <span class="text-xs font-semibold tracking-wide uppercase text-slate-200">Live Camera</span>
+          <span id="cameraLensBadge" class="text-[10px] font-medium uppercase px-1.5 py-0.5 rounded bg-slate-800 text-emerald-300 ml-1">BACK</span>
+        </div>
+
+        <!-- Switch Camera Lens Toggle -->
+        <button 
+          id="flipCameraBtn"
+          class="glass-btn pointer-events-auto rounded-full w-9 h-9 flex items-center justify-center text-slate-200 hover:text-white shadow-lg active:scale-95"
+          title="Flip Camera (Front/Back)"
+          aria-label="Flip Camera"
+        >
+          <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </header>
+
+      <!-- Camera Placeholder / Notice when camera is loading or denied -->
+      <div id="cameraStatusOverlay" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-950/85 z-10 transition-opacity duration-300">
+        <div class="w-12 h-12 rounded-full bg-slate-800/80 flex items-center justify-center mb-3 text-slate-400">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </div>
+        <p id="cameraStatusText" class="text-sm font-medium text-slate-300 max-w-xs mb-3">Connecting to back camera...</p>
+        <button id="retryCameraBtn" class="hidden px-4 py-2 rounded-full glass-btn text-xs font-semibold text-emerald-400 border-emerald-500/30">
+          Retry Access
+        </button>
+      </div>
+    </section>
+
+    <!-- Initial Launch / Permission Modal (Ensures compliance with browser autoplay & camera gestures) -->
+    <div id="permissionModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-6 transition-all duration-300">
+      <div class="max-w-sm w-full bg-slate-900/90 border border-slate-700/80 rounded-2xl p-6 text-center shadow-2xl">
+        <div class="w-14 h-14 rounded-2xl bg-cyan-950/60 border border-cyan-500/30 mx-auto flex items-center justify-center text-cyan-400 mb-4 shadow-inner">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        </div>
+        
+        <h2 class="text-lg font-bold text-white mb-2">Split-Screen View Ready</h2>
+        <p class="text-xs text-slate-400 leading-relaxed mb-6">
+          This app plays video clips in the top half and streams your real-time back camera in the bottom half. Tap below to permit camera access.
+        </p>
+
+        <button 
+          id="startAppBtn" 
+          class="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 text-slate-950 font-bold text-sm tracking-wide shadow-lg shadow-cyan-500/20 active:scale-98 hover:brightness-110 transition flex items-center justify-center gap-2"
+        >
+          <span>Enable Camera & Start</span>
+          <svg class="w-4 h-4 text-slate-950" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
+        </button>
+
+        <p class="text-[11px] text-slate-400 mt-4">
+          Note: Camera access requires a secure connection (HTTPS or localhost).
+        </p>
+      </div>
+    </div>
+
+    <!-- Non-intrusive Toast Notification Banner -->
+    <div id="toast" class="fixed top-5 inset-x-5 pointer-events-none z-50 flex justify-center transition-all duration-300 opacity-0 -translate-y-4">
+      <div id="toastMessage" class="glass-pill px-4 py-2.5 rounded-full text-xs font-medium text-slate-200 shadow-xl border border-slate-700/60 max-w-sm text-center">
+        Notification
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // =========================================================================
+    //  USER CONFIGURATION: PASTE YOUR VIDEO LINKS HERE
+    //  Add, replace, or reorder any direct MP4/WebM video URLs below.
+    // =========================================================================
+    const VIDEO_LINKS = [
+      "https://cdn4.omeglemedia.com/remote_control.php?file=MK7v84COsT89w72t7czz-hd3eiavzuzecy9yvUL-1KcHxV3zciZfKwf0rbnL67cSOq6z57TX5YLqHPAnGkOGlkIynlkdpd7cboF-e9vki5v_CV0ssiinlrqEBzilev9y9cCuQn7VmALQhjDODSiOI-iaULc6Thhr48q7SZS6CW9JFllu6fQ8_a6pW1wnoTwe1cs09Rk1_dBGZY97.mp4&acctoken=OTE4YWI4Y2U2NzNiMzQxODAwNDljNjA4YjYxNDNkN2EyZjBiMTEyZjI0MWFjOTA1ZGM3ZWVjOGRhMWMxYmNiOXwxNzkwNjMyNDIyfDEzMzUwMHxvbWVnbGVwb3JuLnRvfDB8fDU5YjIyMWM4MmEwY2Q2ZTI2MWVkMjhiM2EzNTJjMWJj",
+      "https://cdn14.omeglemedia.com/remote_control.php?file=Tv1gRtfWViTA0MGlT1pLVLgry3RRD56PC5w6dYygcZ2NzezCx3a8SgtHI6oUMfzE5IY2QYr3Y_PkIYfNv1nzC3978OwGeKuWQ95dP14Zu8L-P-zOOHgJ8rD_vv7IBbhw5x8PjZTSGuYqz1C3efDl_mHSo-dsyTUJrIhJdkM0x1KfTZpaHD8r0uB2WWnUE6VY5eQghw7UmEa_H_o-vNraYRM.mp4&acctoken=YzJiZjRjZDMzMWU5YzdlODIwYmQ1NjM5ZGJjYjQ2N2FjOTNkNzA0MDE5YWM1OWRmYzIzYWE5ZWU0ZDk1NmQ1OXwxNzkwNjMyNTIyfDIwMDI1MHxvbWVnbGVwb3JuLnRvfDB8fGE4ZDE5NGZmOGQzYjdlY2M3MWMyZjNlODI1NWZhZjBi",
+      "https://cdn14.omeglemedia.com/remote_control.php?file=BuLIYtxc7qxNIbnCcjGJQrz8sqlQqtcWqZQUL6QxV932rCRH6diJThCe3vI09VfASmnD_ArTDweWgBymz7WLi3QKHn44_huMHN6NExX5v_BF2x3MT8PBc65BPZbZ4NlxxrVBnWxbE8dyJZ8D0MRa0hiMyCD1vSXbnPkbGiwf6M09_2Y1QO2CNhtidV7Fw_b3aU2OSa3eKDIOs6sD.mp4&acctoken=NTZiNjYwNGRkZjczOTM5MzJjZTAwMDJmNTM0YzY2NDg0MzFlNWIzODk5NTdlYWQ2YWY1NWI4OWViMzQwZjA0MXwxNzkwNjMyNTU2fDEwNDAwMHxvbWVnbGVwb3JuLnRvfDB8fDk2N2Y0NGY2YzgzMmE5MDY1OTg5N2FmMjc1ZTU5YTNk",
+      "https://cdn8.omeglemedia.com/remote_control.php?file=R9mTIS-mp84715znBnTRRAsmi9Enrl0SZFFRm6s1UUdiD039fm66KE6JW9uh5Rww9biiCk81XbeGayGeP4NvB8bxHlm3Vy5wcF60HhLDOSIK0sPH-v3b5wRp1HwsRc2-DieKoXfLyM3DYyDKFIvYT-GbR3mRNnrjt1o10OVsVat9XNNKu7OH7n0rxkAmv1s_xe7OQbMFM8eOCd-Q.mp4&acctoken=NGVkMzVjN2JmNjRkMDNmZWUzZGZmNzYzODUyMWQ1MTgzOTdjZDhkODlhZTk1NDUyMTA5ODYxZGI2ZTEyMTBhN3wxNzkwNjMyODg4fDE1MTAwMHxvbWVnbGVwb3JuLnRvfDB8fDIyMzBhNTcwYzJkMDk5YWRkMmI5N2QyOWQ4ZGE0YzFh"
+    ];
+    // =========================================================================
+
+    // DOM Element References
+    const topVideo = document.getElementById('topVideo');
+    const cameraFeed = document.getElementById('cameraFeed');
+    const nextVideoBtn = document.getElementById('nextVideoBtn');
+    const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+    const iconAudioOn = document.getElementById('iconAudioOn');
+    const iconAudioOff = document.getElementById('iconAudioOff');
+    const videoCounter = document.getElementById('videoCounter');
+    const videoLoader = document.getElementById('videoLoader');
+    const videoErrorOverlay = document.getElementById('videoErrorOverlay');
+    const retryVideoBtn = document.getElementById('retryVideoBtn');
+
+    const flipCameraBtn = document.getElementById('flipCameraBtn');
+    const cameraLensBadge = document.getElementById('cameraLensBadge');
+    const cameraStatusOverlay = document.getElementById('cameraStatusOverlay');
+    const cameraStatusText = document.getElementById('cameraStatusText');
+    const retryCameraBtn = document.getElementById('retryCameraBtn');
+
+    const permissionModal = document.getElementById('permissionModal');
+    const startAppBtn = document.getElementById('startAppBtn');
+    const toast = document.getElementById('toast');
+    const toastMessage = document.getElementById('toastMessage');
+
+    // State Variables
+    let currentVideoIndex = -1;
+    let currentPlayRequestId = 0;
+    let cameraStream = null;
+    let currentFacingMode = 'environment'; // 'environment' targets the back camera
+    let isVideoMuted = true;
+    let toastTimeout = null;
+
+    function showToast(message, duration = 3000) {
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastMessage.textContent = message;
+      toast.classList.remove('opacity-0', '-translate-y-4');
+      toast.classList.add('opacity-100', 'translate-y-0');
+
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove('opacity-100', 'translate-y-0');
+        toast.classList.add('opacity-0', '-translate-y-4');
+      }, duration);
+    }
+
+    function hideVideoError() {
+      videoErrorOverlay.classList.add('hidden');
+      videoErrorOverlay.classList.remove('flex');
+    }
+
+    function showVideoError(msg) {
+      videoLoader.classList.remove('opacity-100');
+      videoLoader.classList.add('opacity-0');
+      videoErrorOverlay.classList.remove('hidden');
+      videoErrorOverlay.classList.add('flex');
+      if (msg) showToast(msg, 3000);
+    }
+
+    /**
+     * Safely executes video playback and handles browser autoplay policies cleanly.
+     */
+    async function playVideoSafely(requestId) {
+      try {
+        await topVideo.play();
+        if (requestId === currentPlayRequestId) {
+          videoLoader.classList.remove('opacity-100');
+          videoLoader.classList.add('opacity-0');
+          hideVideoError();
+        }
+      } catch (err) {
+        if (requestId !== currentPlayRequestId) return;
+
+        // Only retry muted if blocked specifically by browser autoplay policy
+        if (err.name === 'NotAllowedError') {
+          console.warn('Autoplay restricted audio; retrying muted...');
+          isVideoMuted = true;
+          topVideo.muted = true;
+          updateAudioIcons();
+          try {
+            await topVideo.play();
+            videoLoader.classList.remove('opacity-100');
+            videoLoader.classList.add('opacity-0');
+            hideVideoError();
+          } catch (muteErr) {
+            console.warn('Playback paused by browser gesture policy:', muteErr);
+            videoLoader.classList.remove('opacity-100');
+            videoLoader.classList.add('opacity-0');
+          }
+        } else if (err.name === 'AbortError') {
+          // Playback request superseded by another video switch; safe to ignore
+        } else {
+          // Source unsupported or blocked by CORS / network
+          console.warn('Video source load notice:', err.message);
+          showVideoError('Unable to play this video source.');
+        }
+      }
+    }
+
+    /**
+     * Randomly picks a video from the VIDEO_LINKS array.
+     * Prevents picking the immediate identical video if array has more than 1 item.
+     */
+    function playRandomVideo() {
+      if (!VIDEO_LINKS || VIDEO_LINKS.length === 0) {
+        showToast('No videos available in the list.');
+        return;
+      }
+
+      let newIndex = currentVideoIndex;
+      if (VIDEO_LINKS.length === 1) {
+        newIndex = 0;
+      } else {
+        // Find a random index different from current
+        do {
+          newIndex = Math.floor(Math.random() * VIDEO_LINKS.length);
+        } while (newIndex === currentVideoIndex);
+      }
+
+      currentVideoIndex = newIndex;
+      const targetUrl = VIDEO_LINKS[currentVideoIndex];
+      const thisRequestId = ++currentPlayRequestId;
+
+      // Update badge
+      videoCounter.textContent = `${currentVideoIndex + 1}/${VIDEO_LINKS.length}`;
+
+      // Show loader spinner and clear previous errors
+      hideVideoError();
+      videoLoader.classList.remove('opacity-0');
+      videoLoader.classList.add('opacity-100');
+
+      // Set audio state and new source cleanly (NO topVideo.load() call to prevent NETWORK_NO_SOURCE race)
+      topVideo.muted = isVideoMuted;
+      topVideo.src = targetUrl;
+
+      // Wait until media data is available before calling play
+      const onCanPlay = () => {
+        if (thisRequestId === currentPlayRequestId) {
+          playVideoSafely(thisRequestId);
+        }
+      };
+
+      if (topVideo.readyState >= 2) {
+        playVideoSafely(thisRequestId);
+      } else {
+        topVideo.addEventListener('canplay', onCanPlay, { once: true });
+      }
+    }
+
+    function updateAudioIcons() {
+      if (isVideoMuted) {
+        iconAudioOn.classList.add('hidden');
+        iconAudioOff.classList.remove('hidden');
+      } else {
+        iconAudioOn.classList.remove('hidden');
+        iconAudioOff.classList.add('hidden');
+      }
+    }
+
+    toggleAudioBtn.addEventListener('click', () => {
+      isVideoMuted = !isVideoMuted;
+      topVideo.muted = isVideoMuted;
+      updateAudioIcons();
+      showToast(isVideoMuted ? 'Top video muted' : 'Top video unmuted', 1800);
+    });
+
+    nextVideoBtn.addEventListener('click', () => {
+      playRandomVideo();
+    });
+
+    retryVideoBtn.addEventListener('click', () => {
+      playRandomVideo();
+    });
+
+    // Catch media error events
+    topVideo.addEventListener('error', () => {
+      showVideoError('Video source failed to load or is unreachable.');
+    });
+
+    // Automatically skip to next random video when current video completes
+    topVideo.addEventListener('ended', () => {
+      playRandomVideo();
+    });
+
+    // Hide loader once metadata or frame is ready
+    topVideo.addEventListener('playing', () => {
+      videoLoader.classList.remove('opacity-100');
+      videoLoader.classList.add('opacity-0');
+    });
+
+    /**
+     * Initializes the user's camera, prioritizing the back camera (`environment`).
+     */
+    async function initCamera(facingMode = 'environment') {
+      currentFacingMode = facingMode;
+      cameraLensBadge.textContent = facingMode === 'environment' ? 'BACK' : 'FRONT';
+      cameraStatusText.textContent = `Accessing ${facingMode === 'environment' ? 'back' : 'front'} camera...`;
+      retryCameraBtn.classList.add('hidden');
+      cameraStatusOverlay.classList.remove('opacity-0', 'pointer-events-none');
+
+      // Stop any existing camera tracks before requesting a new device
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+
+      // Check for HTTPS / Localhost security requirement
+      const isSecure = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (!isSecure) {
+        cameraStatusText.textContent = 'Camera requires a secure HTTPS connection. Please run on HTTPS or localhost.';
+        cameraStatusOverlay.classList.remove('opacity-0', 'pointer-events-none');
+        showToast('HTTPS required for camera access', 5000);
+        return;
+      }
+
+      // Check device media support
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        cameraStatusText.textContent = 'Your browser does not support camera access via getUserMedia.';
+        cameraStatusOverlay.classList.remove('opacity-0', 'pointer-events-none');
+        return;
+      }
+
+      // Desired camera constraints
+      const constraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: currentFacingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      try {
+        let stream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (strictErr) {
+          // Fallback if ideal facingMode constraint fails on some hardware
+          console.warn('Ideal constraint failed, retrying with general video request:', strictErr);
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+
+        cameraStream = stream;
+        cameraFeed.srcObject = stream;
+
+        await cameraFeed.play();
+
+        // Stream connected successfully
+        cameraStatusOverlay.classList.add('opacity-0', 'pointer-events-none');
+      } catch (err) {
+        console.error('Camera initialization error:', err);
+        let errorMsg = 'Could not access camera. Please check browser permissions.';
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          errorMsg = 'Camera permission was denied. Please allow camera access in browser settings.';
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          errorMsg = 'No camera device found on this device.';
+        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+          errorMsg = 'Camera is already in use by another application.';
+        }
+
+        cameraStatusText.textContent = errorMsg;
+        retryCameraBtn.classList.remove('hidden');
+        cameraStatusOverlay.classList.remove('opacity-0', 'pointer-events-none');
+        showToast(errorMsg, 4000);
+      }
+    }
+
+    // Flip Camera button handler
+    flipCameraBtn.addEventListener('click', () => {
+      const nextFacing = currentFacingMode === 'environment' ? 'user' : 'environment';
+      initCamera(nextFacing);
+    });
+
+    // Retry Camera button handler
+    retryCameraBtn.addEventListener('click', () => {
+      initCamera(currentFacingMode);
+    });
+
+    // Initial onboarding click ensures user gesture to satisfy browser autoplay policies
+    startAppBtn.addEventListener('click', async () => {
+      permissionModal.classList.add('opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        permissionModal.style.display = 'none';
+      }, 300);
+
+      // Start live camera stream
+      await initCamera('environment');
+
+      // Start random top video
+      playRandomVideo();
+    });
+
+    // Cleanup tracks if window is unloaded
+    window.addEventListener('beforeunload', () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    });
+
+    // Pre-initialize initial state icons
+    updateAudioIcons();
+  </script>
+</body>
+</html>
